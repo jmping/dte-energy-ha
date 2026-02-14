@@ -32,9 +32,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-repo/dte-energy-ha"
-Repository = "https://github.com/your-repo/dte-energy-ha"
-Issues = "https://github.com/your-repo/dte-energy-ha/issues"
+Homepage = "https://github.com/therealcybermattlee/dte-energy-ha"
+Repository = "https://github.com/therealcybermattlee/dte-energy-ha"
+Issues = "https://github.com/therealcybermattlee/dte-energy-ha/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
