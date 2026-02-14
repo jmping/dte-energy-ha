@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DTE Energy Setup",
+        "description": "Enter your DTE Energy usage data link. You can find this in your DTE account under Usage > Usage History > Generate Link.",
+        "data": {
+          "usage_link": "Usage Data Link"
+        },
+        "data_description": {
+          "usage_link": "The shareable Green Button link from DTE Energy (https://usagedata.dteenergy.com/link/...)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to DTE Energy. Please verify the link is correct and try again.",
+      "invalid_link": "The link format is invalid. It should look like: https://usagedata.dteenergy.com/link/{uuid}",
+      "unknown": "An unexpected error occurred. Please check the logs for more information."
+    },
+    "abort": {
+      "already_configured": "This DTE Energy link is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "electric_meter": {
+        "name": "Electric Meter"
+      },
+      "gas_meter": {
+        "name": "Gas Meter"
+      }
+    }
+  }
+}

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:espi="http://naesb.org/espi">
+  <id>urn:uuid:87654321-4321-4321-4321-cba987654321</id>
+  <title>DTE Energy Gas Usage Data</title>
+  <updated>2024-01-15T12:00:00Z</updated>
+  <entry>
+    <id>urn:uuid:usage-point-gas-1</id>
+    <title>UsagePoint</title>
+    <content>
+      <espi:UsagePoint>
+        <espi:ServiceCategory>
+          <espi:kind>1</espi:kind>
+        </espi:ServiceCategory>
+      </espi:UsagePoint>
+    </content>
+  </entry>
+  <entry>
+    <id>urn:uuid:reading-type-gas-1</id>
+    <title>ReadingType</title>
+    <content>
+      <espi:ReadingType>
+        <espi:commodity>7</espi:commodity>
+        <espi:uom>169</espi:uom>
+        <espi:powerOfTenMultiplier>0</espi:powerOfTenMultiplier>
+      </espi:ReadingType>
+    </content>
+  </entry>
+  <entry>
+    <id>urn:uuid:interval-block-gas-1</id>
+    <title>IntervalBlock</title>
+    <content>
+      <espi:IntervalBlock>
+        <espi:IntervalReading>
+          <espi:timePeriod>
+            <espi:start>1704067200</espi:start>
+            <espi:duration>86400</espi:duration>
+          </espi:timePeriod>
+          <espi:value>3</espi:value>
+        </espi:IntervalReading>
+        <espi:IntervalReading>
+          <espi:timePeriod>
+            <espi:start>1704153600</espi:start>
+            <espi:duration>86400</espi:duration>
+          </espi:timePeriod>
+          <espi:value>4</espi:value>
+        </espi:IntervalReading>
+        <espi:IntervalReading>
+          <espi:timePeriod>
+            <espi:start>1704240000</espi:start>
+            <espi:duration>86400</espi:duration>
+          </espi:timePeriod>
+          <espi:value>5</espi:value>
+        </espi:IntervalReading>
+      </espi:IntervalBlock>
+    </content>
+  </entry>
+</feed>
