@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 import aiohttp
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -33,6 +34,7 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hass: HomeAssistant,
         usage_link: str,
         service_type: str | None = None,
+        entry_id: str | None = None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -47,6 +49,15 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._configured_service_type = service_type
         self._service_type: str | None = service_type
         self._meter_id: str | None = None
+        self._entry_id = entry_id
+        self._store: Store[dict[str, Any]] | None = None
+        self._ledger: dict[str, Any] | None = None
+        if entry_id is not None:
+            self._store = Store(
+                hass,
+                1,
+                f"{DOMAIN}.{entry_id}.interval_ledger",
+            )
 
     @property
     def service_type(self) -> str | None:
@@ -72,7 +83,15 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                     xml_data = await response.text()
 
-            return self._parse_green_button_xml(xml_data)
+            data = self._parse_green_button_xml(xml_data)
+            if self._store is not None:
+                await self._reconcile_persistent_totals(data)
+            else:
+                # Config-flow validation has no config-entry ID and therefore
+                # intentionally does not create persistent storage.
+                for service in data.get("services", {}).values():
+                    service.pop("readings", None)
+            return data
 
         except aiohttp.ClientError as err:
             raise UpdateFailed(
@@ -147,6 +166,8 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "latest_reading": readings[-1],
                 "service_type": service_type,
                 "usage_point": usage_points.get(service_type),
+                "readings": readings,
+                "source_window_total": round(total_usage, 3),
             }
 
         if not services:
@@ -173,6 +194,128 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.update(services[service_types[0]])
 
         return result
+
+    async def _reconcile_persistent_totals(
+        self, data: dict[str, Any]
+    ) -> None:
+        """Reconcile the rolling DTE feed into a persistent cumulative ledger."""
+        if self._store is None:
+            return
+
+        if self._ledger is None:
+            loaded = await self._store.async_load()
+            self._ledger = loaded if isinstance(loaded, dict) else {}
+
+        stored_services = self._ledger.setdefault("services", {})
+        changed = False
+
+        for service_type, service in data.get("services", {}).items():
+            readings = service.pop("readings", [])
+            current_intervals = self._deduplicate_intervals(readings)
+            source_window_total = round(
+                sum(current_intervals.values()), 3
+            )
+            service["source_window_total"] = source_window_total
+
+            stored = stored_services.get(service_type)
+            if not isinstance(stored, dict):
+                total_usage = sum(current_intervals.values())
+                stored = {
+                    "total_usage": total_usage,
+                    "intervals": dict(current_intervals),
+                    "pending_negative_correction": 0.0,
+                }
+                stored_services[service_type] = stored
+                changed = True
+                new_intervals = len(current_intervals)
+                revised_intervals = 0
+            else:
+                intervals = stored.setdefault("intervals", {})
+                if not isinstance(intervals, dict):
+                    intervals = {}
+                    stored["intervals"] = intervals
+
+                total_usage = float(
+                    stored.get(
+                        "total_usage",
+                        sum(float(v) for v in intervals.values()),
+                    )
+                )
+                pending = float(
+                    stored.get("pending_negative_correction", 0.0)
+                )
+                new_intervals = 0
+                revised_intervals = 0
+
+                for key, new_value in current_intervals.items():
+                    old_raw = intervals.get(key)
+                    if old_raw is None:
+                        increment = new_value
+                        new_intervals += 1
+                    else:
+                        old_value = float(old_raw)
+                        increment = new_value - old_value
+                        if abs(increment) > 1e-9:
+                            revised_intervals += 1
+
+                    if old_raw is None or abs(increment) > 1e-9:
+                        intervals[key] = new_value
+                        changed = True
+
+                        if increment < 0:
+                            # Do not make a total_increasing sensor move
+                            # backwards. Carry a downward DTE revision forward
+                            # and absorb it from subsequent positive usage.
+                            pending += increment
+                        elif increment > 0:
+                            if pending < 0:
+                                absorbed = min(increment, -pending)
+                                pending += absorbed
+                                increment -= absorbed
+                            total_usage += increment
+
+                stored["total_usage"] = total_usage
+                stored["pending_negative_correction"] = pending
+
+            service["total_usage"] = round(
+                float(stored["total_usage"]), 3
+            )
+            service["ledger_interval_count"] = len(
+                stored.get("intervals", {})
+            )
+            service["new_intervals"] = new_intervals
+            service["revised_intervals"] = revised_intervals
+            service["pending_negative_correction"] = round(
+                float(
+                    stored.get(
+                        "pending_negative_correction", 0.0
+                    )
+                ),
+                6,
+            )
+
+        if changed:
+            await self._store.async_save(self._ledger)
+
+    @staticmethod
+    def _deduplicate_intervals(
+        readings: list[dict[str, Any]],
+    ) -> dict[str, float]:
+        """Return one normalized value for each timestamp/duration pair."""
+        intervals: dict[str, float] = {}
+
+        for reading in readings:
+            start = reading.get("start_time")
+            duration = reading.get("duration")
+            value = reading.get("value")
+
+            if start is None or duration is None or value is None:
+                continue
+
+            key = f"{int(start)}:{int(duration)}"
+            intervals[key] = float(value)
+
+        return intervals
 
     def _find_usage_points(
         self, entries: list[ET.Element]
