@@ -9,6 +9,8 @@ A custom Home Assistant integration that fetches electric and gas usage data fro
 - **Gas usage tracking**: daily readings normalized to cubic feet
 - **Energy Dashboard compatible**: electric and gas sensors use Home Assistant energy/gas device classes
 - **Automatic service detection**: discovers all supported services present in the feed
+- **Persistent interval ledger**: rolling DTE export windows cannot make cumulative sensors move backward
+- **Revision-aware reconciliation**: changed DTE intervals are reconciled without creating false meter resets
 - **24-hour polling** with historical data supplied by DTE
 
 ## Installation
@@ -36,8 +38,8 @@ The integration inspects the complete Green Button feed. If the same link contai
 
 | Sensor | Description | Unit | Device class |
 |---|---|---|---|
-| DTE Electric Meter | Electric usage represented by the downloaded DTE history | kWh | energy |
-| DTE Gas Meter | Gas usage represented by the downloaded DTE history | ft³ | gas |
+| DTE Electric Meter | Locally maintained cumulative electric usage | kWh | energy |
+| DTE Gas Meter | Locally maintained cumulative gas usage | ft³ | gas |
 
 Existing electric installations retain the original `<config_entry_id>_electric_meter` unique ID.
 
@@ -53,6 +55,19 @@ Under **Settings > Dashboards > Energy**:
 
 - add **DTE Electric Meter** as grid consumption;
 - add **DTE Gas Meter** as gas consumption.
+
+## Persistent cumulative ledger
+
+DTE's share export is treated as a rolling set of timestamped intervals, not as a lifetime meter register. On first load, the integration seeds a local ledger from every interval in the feed. On subsequent refreshes it:
+
+- adds only intervals it has not seen before;
+- updates stored values when DTE revises an existing timestamp;
+- ignores intervals that disappear because the DTE export window rolled forward;
+- persists the ledger in Home Assistant storage across restarts.
+
+A downward DTE revision is carried as a pending correction rather than making a `total_increasing` entity move backward. Subsequent positive usage absorbs that correction before the cumulative sensor advances again.
+
+Sensor attributes expose the current source-window total, stored interval count, new/revised interval counts from the latest refresh, and any pending downward correction.
 
 ## Data updates
 
