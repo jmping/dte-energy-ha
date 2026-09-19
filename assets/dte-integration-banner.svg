@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" role="img" aria-labelledby="title desc">
+  <title id="title">DTE Integration</title>
+  <desc id="desc">Unofficial Home Assistant integration for DTE Energy usage data</desc>
+
+  <rect width="1200" height="260" rx="28" fill="#243447"/>
+
+  <g transform="translate(72 62)" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M58 0 18 72h42l-12 64 64-88H72L88 0Z"/>
+  </g>
+
+  <text x="205" y="125"
+        fill="#ffffff"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="72"
+        font-weight="700"
+        letter-spacing="1">
+    DTE Integration
+  </text>
+
+  <text x="208" y="178"
+        fill="#d7e0e8"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="30"
+        font-weight="400">
+    Unofficial Home Assistant integration for DTE Energy
+  </text>
+</svg>
