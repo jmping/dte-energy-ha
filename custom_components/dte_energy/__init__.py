@@ -31,7 +31,10 @@ async def async_setup_entry(
     configured_service_type = entry.data.get(CONF_SERVICE_TYPE)
 
     coordinator = DTEEnergyCoordinator(
-        hass, usage_link, configured_service_type
+        hass,
+        usage_link,
+        configured_service_type,
+        entry.entry_id,
     )
 
     await coordinator.async_config_entry_first_refresh()
