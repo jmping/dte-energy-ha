@@ -1,6 +1,12 @@
+<p align="center">
+  <img src="assets/dte-integration-banner.svg" alt="DTE Integration" width="760">
+</p>
+
 # DTE Energy Home Assistant Integration
 
 A custom Home Assistant integration that fetches electric and gas usage data from DTE Energy shareable Green Button links.
+
+> This project is unofficial and is not affiliated with, endorsed by, or sponsored by DTE Energy.
 
 ## Features
 
