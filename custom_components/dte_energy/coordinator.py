@@ -86,7 +86,16 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             data = self._parse_green_button_xml(xml_data)
             if self._store is not None:
-                await self._reconcile_persistent_totals(data)
+                dirty_from = await self._reconcile_persistent_totals(data)
+                if self._ledger is not None and self._entry_id is not None:
+                    stats_changed = await async_import_interval_statistics(
+                        self.hass,
+                        self._entry_id,
+                        self._ledger,
+                        dirty_from,
+                    )
+                    if stats_changed:
+                        await self._store.async_save(self._ledger)
             else:
                 # Config-flow validation has no config-entry ID and therefore
                 # intentionally does not create persistent storage.
@@ -216,10 +225,10 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _reconcile_persistent_totals(
         self, data: dict[str, Any]
-    ) -> None:
+    ) -> dict[str, int | None]:
         """Reconcile the rolling DTE feed into persistent cumulative ledgers."""
         if self._store is None:
-            return
+            return {}
 
         if self._ledger is None:
             loaded = await self._store.async_load()
@@ -227,6 +236,10 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         stored_services = self._ledger.setdefault("services", {})
         changed = False
+        dirty_from: dict[str, int | None] = {
+            SERVICE_TYPE_ELECTRIC: None,
+            SERVICE_TYPE_GAS: None,
+        }
 
         for service_type, service in data.get("services", {}).items():
             readings = service.pop("readings", [])
@@ -273,6 +286,11 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
                 stored_services[service_type] = stored
                 changed = True
+                if current_intervals:
+                    dirty_from[service_type] = min(
+                        int(key.split(":", 1)[0])
+                        for key in current_intervals
+                    )
                 new_intervals = len(current_intervals)
                 revised_intervals = 0
             else:
@@ -298,6 +316,11 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     stored["total_export"] = migrated_export
                     stored.setdefault("pending_export_correction", 0.0)
+                    if intervals:
+                        dirty_from[service_type] = min(
+                            int(key.split(":", 1)[0])
+                            for key in intervals
+                        )
                     changed = True
 
                 total_usage = float(stored.get("total_usage", 0.0))
@@ -324,6 +347,13 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if old_raw is None or abs(new_value - old_value) > 1e-9:
                         intervals[key] = new_value
                         changed = True
+                        changed_start = int(key.split(":", 1)[0])
+                        current_dirty = dirty_from[service_type]
+                        if (
+                            current_dirty is None
+                            or changed_start < current_dirty
+                        ):
+                            dirty_from[service_type] = changed_start
 
                         if service_type == SERVICE_TYPE_ELECTRIC:
                             old_usage = max(old_value, 0.0)
@@ -421,6 +451,8 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if changed:
             await self._store.async_save(self._ledger)
+
+        return dirty_from
 
     @staticmethod
     def _deduplicate_intervals(
