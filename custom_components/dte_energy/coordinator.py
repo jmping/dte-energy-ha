@@ -23,6 +23,7 @@ from .const import (
     SERVICE_TYPE_ELECTRIC,
     SERVICE_TYPE_GAS,
 )
+from .history import async_import_interval_statistics
 
 _LOGGER = logging.getLogger(__name__)
 
