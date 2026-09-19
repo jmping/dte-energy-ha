@@ -161,10 +161,20 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             readings.sort(key=lambda item: item["start_time"] or 0)
-            total_usage = sum(item["value"] for item in readings)
+            if service_type == SERVICE_TYPE_ELECTRIC:
+                total_usage = sum(
+                    max(float(item["value"]), 0.0) for item in readings
+                )
+                total_export = sum(
+                    max(-float(item["value"]), 0.0) for item in readings
+                )
+            else:
+                total_usage = sum(float(item["value"]) for item in readings)
+                total_export = 0.0
 
             services[service_type] = {
                 "total_usage": round(total_usage, 3),
+                "total_export": round(total_export, 3),
                 "unit": (
                     "kWh"
                     if service_type == SERVICE_TYPE_ELECTRIC
@@ -176,6 +186,7 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "usage_point": usage_points.get(service_type),
                 "readings": readings,
                 "source_window_total": round(total_usage, 3),
+                "source_window_export": round(total_export, 3),
             }
 
         if not services:
@@ -206,7 +217,7 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _reconcile_persistent_totals(
         self, data: dict[str, Any]
     ) -> None:
-        """Reconcile the rolling DTE feed into a persistent cumulative ledger."""
+        """Reconcile the rolling DTE feed into persistent cumulative ledgers."""
         if self._store is None:
             return
 
@@ -220,18 +231,45 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for service_type, service in data.get("services", {}).items():
             readings = service.pop("readings", [])
             current_intervals = self._deduplicate_intervals(readings)
-            source_window_total = round(
-                sum(current_intervals.values()), 3
+
+            if service_type == SERVICE_TYPE_ELECTRIC:
+                source_window_total = sum(
+                    max(value, 0.0)
+                    for value in current_intervals.values()
+                )
+                source_window_export = sum(
+                    max(-value, 0.0)
+                    for value in current_intervals.values()
+                )
+                export_reading_count = sum(
+                    1 for value in current_intervals.values() if value < 0
+                )
+            else:
+                source_window_total = sum(current_intervals.values())
+                source_window_export = 0.0
+                export_reading_count = 0
+
+            service["source_window_total"] = round(
+                source_window_total, 3
             )
-            service["source_window_total"] = source_window_total
+            service["source_window_export"] = round(
+                source_window_export, 3
+            )
+            service["export_reading_count"] = export_reading_count
+            service["duplicate_intervals"] = max(
+                0, len(readings) - len(current_intervals)
+            )
 
             stored = stored_services.get(service_type)
             if not isinstance(stored, dict):
-                total_usage = sum(current_intervals.values())
+                total_usage = source_window_total
+                total_export = source_window_export
                 stored = {
                     "total_usage": total_usage,
+                    "total_export": total_export,
                     "intervals": dict(current_intervals),
                     "pending_negative_correction": 0.0,
+                    "pending_export_correction": 0.0,
                 }
                 stored_services[service_type] = stored
                 changed = True
@@ -243,14 +281,32 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     intervals = {}
                     stored["intervals"] = intervals
 
-                total_usage = float(
-                    stored.get(
-                        "total_usage",
-                        sum(float(v) for v in intervals.values()),
+                # Migrate ledgers created before export support. Recomputing
+                # gross import/export from the retained signed intervals is
+                # safe because these totals are monotonic counters, not a
+                # utility meter register.
+                if "total_export" not in stored:
+                    migrated_usage = sum(
+                        max(float(v), 0.0) for v in intervals.values()
                     )
-                )
-                pending = float(
+                    migrated_export = sum(
+                        max(-float(v), 0.0) for v in intervals.values()
+                    )
+                    stored["total_usage"] = max(
+                        float(stored.get("total_usage", 0.0)),
+                        migrated_usage,
+                    )
+                    stored["total_export"] = migrated_export
+                    stored.setdefault("pending_export_correction", 0.0)
+                    changed = True
+
+                total_usage = float(stored.get("total_usage", 0.0))
+                total_export = float(stored.get("total_export", 0.0))
+                pending_usage = float(
                     stored.get("pending_negative_correction", 0.0)
+                )
+                pending_export = float(
+                    stored.get("pending_export_correction", 0.0)
                 )
                 new_intervals = 0
                 revised_intervals = 0
@@ -258,35 +314,70 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for key, new_value in current_intervals.items():
                     old_raw = intervals.get(key)
                     if old_raw is None:
-                        increment = new_value
+                        old_value = 0.0
                         new_intervals += 1
                     else:
                         old_value = float(old_raw)
-                        increment = new_value - old_value
-                        if abs(increment) > 1e-9:
+                        if abs(new_value - old_value) > 1e-9:
                             revised_intervals += 1
 
-                    if old_raw is None or abs(increment) > 1e-9:
+                    if old_raw is None or abs(new_value - old_value) > 1e-9:
                         intervals[key] = new_value
                         changed = True
 
-                        if increment < 0:
-                            # Do not make a total_increasing sensor move
-                            # backwards. Carry a downward DTE revision forward
-                            # and absorb it from subsequent positive usage.
-                            pending += increment
-                        elif increment > 0:
-                            if pending < 0:
-                                absorbed = min(increment, -pending)
-                                pending += absorbed
-                                increment -= absorbed
-                            total_usage += increment
+                        if service_type == SERVICE_TYPE_ELECTRIC:
+                            old_usage = max(old_value, 0.0)
+                            new_usage = max(new_value, 0.0)
+                            old_export = max(-old_value, 0.0)
+                            new_export = max(-new_value, 0.0)
+
+                            usage_delta = new_usage - old_usage
+                            export_delta = new_export - old_export
+
+                            if usage_delta < 0:
+                                pending_usage += usage_delta
+                            elif usage_delta > 0:
+                                if pending_usage < 0:
+                                    absorbed = min(
+                                        usage_delta, -pending_usage
+                                    )
+                                    pending_usage += absorbed
+                                    usage_delta -= absorbed
+                                total_usage += usage_delta
+
+                            if export_delta < 0:
+                                pending_export += export_delta
+                            elif export_delta > 0:
+                                if pending_export < 0:
+                                    absorbed = min(
+                                        export_delta, -pending_export
+                                    )
+                                    pending_export += absorbed
+                                    export_delta -= absorbed
+                                total_export += export_delta
+                        else:
+                            usage_delta = new_value - old_value
+                            if usage_delta < 0:
+                                pending_usage += usage_delta
+                            elif usage_delta > 0:
+                                if pending_usage < 0:
+                                    absorbed = min(
+                                        usage_delta, -pending_usage
+                                    )
+                                    pending_usage += absorbed
+                                    usage_delta -= absorbed
+                                total_usage += usage_delta
 
                 stored["total_usage"] = total_usage
-                stored["pending_negative_correction"] = pending
+                stored["total_export"] = total_export
+                stored["pending_negative_correction"] = pending_usage
+                stored["pending_export_correction"] = pending_export
 
             service["total_usage"] = round(
                 float(stored["total_usage"]), 3
+            )
+            service["total_export"] = round(
+                float(stored.get("total_export", 0.0)), 3
             )
             service["ledger_interval_count"] = len(
                 stored.get("intervals", {})
@@ -301,19 +392,31 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ),
                 6,
             )
+            service["pending_export_correction"] = round(
+                float(
+                    stored.get(
+                        "pending_export_correction", 0.0
+                    )
+                ),
+                6,
+            )
 
             _LOGGER.info(
-                "DTE %s ledger: total=%s %s, source_window=%s, "
+                "DTE %s ledger: import=%s %s, export=%s, "
+                "source_import=%s, source_export=%s, "
                 "stored_intervals=%s, new=%s, revised=%s, "
-                "pending_correction=%s",
+                "import_correction=%s, export_correction=%s",
                 service_type,
                 service["total_usage"],
                 service["unit"],
+                service["total_export"],
                 service["source_window_total"],
+                service["source_window_export"],
                 service["ledger_interval_count"],
                 service["new_intervals"],
                 service["revised_intervals"],
                 service["pending_negative_correction"],
+                service["pending_export_correction"],
             )
 
         if changed:
