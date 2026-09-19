@@ -1,6 +1,5 @@
-<p align="center">
-  <img src="assets/dte-integration-banner.svg" alt="DTE Integration" width="760">
-</p>
+<h1 align="center">⚡ DTE Integration</h1>
+<p align="center"><strong>Unofficial Home Assistant integration for DTE Energy usage data</strong></p>
 
 # DTE Energy Home Assistant Integration
 
@@ -11,7 +10,7 @@ A custom Home Assistant integration that fetches electric and gas usage data fro
 ## Features
 
 - **Combined-feed support**: one DTE Green Button link can expose both electric and gas usage
-- **Electric usage tracking**: hourly readings normalized to kWh
+- **Electric import/export tracking**: positive intervals are grid consumption; negative intervals are tracked separately as exported energy
 - **Gas usage tracking**: daily readings normalized to cubic feet
 - **Energy Dashboard compatible**: electric and gas sensors use Home Assistant energy/gas device classes
 - **Automatic service detection**: discovers all supported services present in the feed
@@ -44,7 +43,8 @@ The integration inspects the complete Green Button feed. If the same link contai
 
 | Sensor | Description | Unit | Device class |
 |---|---|---|---|
-| DTE Electric Meter | Locally maintained cumulative electric usage | kWh | energy |
+| DTE Electric Meter | Locally maintained cumulative grid import | kWh | energy |
+| DTE Electric Export | Locally maintained cumulative grid export | kWh | energy |
 | DTE Gas Meter | Locally maintained cumulative gas usage | ft³ | gas |
 
 Existing electric installations retain the original `<config_entry_id>_electric_meter` unique ID.
@@ -53,13 +53,14 @@ Existing electric installations retain the original `<config_entry_id>_electric_
 
 DTE exports an Atom/ESPI Green Button feed. This fork does not assume the document contains only one service. It associates IntervalBlock entries with their owning UsagePoint and classifies the UsagePoint from its ESPI ServiceCategory.
 
-DTE electric readings in the observed feed use UOM 72 (Wh); values are normalized to kWh. DTE gas readings are labeled CCF and are normalized to cubic feet after applying the Green Button `powerOfTenMultiplier`.
+DTE electric readings in the observed feed use UOM 72 (Wh); values are normalized to kWh. Positive electric intervals are treated as grid import. Negative electric intervals are treated as grid export and accumulated as a separate positive `DTE Electric Export` counter so both Home Assistant energy sensors remain `total_increasing`. DTE gas readings are labeled CCF and are normalized to cubic feet after applying the Green Button `powerOfTenMultiplier`.
 
 ## Energy Dashboard
 
 Under **Settings > Dashboards > Energy**:
 
 - add **DTE Electric Meter** as grid consumption;
+- add **DTE Electric Export** as return to grid, if applicable;
 - add **DTE Gas Meter** as gas consumption.
 
 ## Persistent cumulative ledger
@@ -73,7 +74,7 @@ DTE's share export is treated as a rolling set of timestamped intervals, not as 
 
 A downward DTE revision is carried as a pending correction rather than making a `total_increasing` entity move backward. Subsequent positive usage absorbs that correction before the cumulative sensor advances again.
 
-Sensor attributes expose the current source-window total, stored interval count, new/revised interval counts from the latest refresh, and any pending downward correction.
+Sensor attributes expose current source-window import/export totals, duplicate interval count, stored interval count, new/revised interval counts from the latest refresh, and any pending downward corrections.
 
 ## Data updates
 
