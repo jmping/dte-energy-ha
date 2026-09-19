@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 import aiohttp
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -72,16 +73,16 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from DTE Energy."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.usage_link,
-                    timeout=aiohttp.ClientTimeout(total=60),
-                ) as response:
-                    if response.status != 200:
-                        raise UpdateFailed(
-                            f"Error fetching data: HTTP {response.status}"
-                        )
-                    xml_data = await response.text()
+            session = async_get_clientsession(self.hass)
+            async with session.get(
+                self.usage_link,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    raise UpdateFailed(
+                        f"Error fetching data: HTTP {response.status}"
+                    )
+                xml_data = await response.text()
 
             data = self._parse_green_button_xml(xml_data)
             if self._store is not None:
@@ -100,7 +101,7 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             return data
 
-        except aiohttp.ClientError as err:
+        except (aiohttp.ClientError, TimeoutError) as err:
             raise UpdateFailed(
                 f"Error communicating with DTE Energy: {err}"
             ) from err
@@ -299,6 +300,20 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                 ),
                 6,
+            )
+
+            _LOGGER.info(
+                "DTE %s ledger: total=%s %s, source_window=%s, "
+                "stored_intervals=%s, new=%s, revised=%s, "
+                "pending_correction=%s",
+                service_type,
+                service["total_usage"],
+                service["unit"],
+                service["source_window_total"],
+                service["ledger_interval_count"],
+                service["new_intervals"],
+                service["revised_intervals"],
+                service["pending_negative_correction"],
             )
 
         if changed:
