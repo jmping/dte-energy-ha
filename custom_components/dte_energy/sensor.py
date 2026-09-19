@@ -17,7 +17,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, CONF_SERVICE_TYPE, SERVICE_TYPE_ELECTRIC, SERVICE_TYPE_GAS
+from .const import DOMAIN, SERVICE_TYPE_ELECTRIC, SERVICE_TYPE_GAS
 from .coordinator import DTEEnergyCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,15 +28,15 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up DTE Energy sensors based on a config entry."""
+    """Set up sensors for every service discovered in the DTE feed."""
     coordinator: DTEEnergyCoordinator = hass.data[DOMAIN][entry.entry_id]
-    service_type = entry.data.get(CONF_SERVICE_TYPE)
+    services = (coordinator.data or {}).get("services", {})
 
     entities: list[SensorEntity] = []
 
-    if service_type == SERVICE_TYPE_ELECTRIC:
+    if SERVICE_TYPE_ELECTRIC in services:
         entities.append(DTEElectricMeterSensor(coordinator, entry))
-    elif service_type == SERVICE_TYPE_GAS:
+    if SERVICE_TYPE_GAS in services:
         entities.append(DTEGasMeterSensor(coordinator, entry))
 
     async_add_entities(entities)
@@ -52,10 +52,12 @@ class DTEBaseSensor(CoordinatorEntity[DTEEnergyCoordinator], SensorEntity):
         self,
         coordinator: DTEEnergyCoordinator,
         entry: ConfigEntry,
+        service_type: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._entry = entry
+        self._service_type = service_type
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
@@ -64,32 +66,41 @@ class DTEBaseSensor(CoordinatorEntity[DTEEnergyCoordinator], SensorEntity):
         )
 
     @property
+    def _service_data(self) -> dict[str, Any]:
+        """Return coordinator data for this service."""
+        if not self.coordinator.data:
+            return {}
+        return self.coordinator.data.get("services", {}).get(
+            self._service_type, {}
+        )
+
+    @property
     def native_value(self) -> float | None:
-        """Return the state of the sensor."""
-        if self.coordinator.data:
-            return self.coordinator.data.get("total_usage")
-        return None
+        """Return cumulative usage represented by the downloaded history."""
+        return self._service_data.get("total_usage")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
-        if not self.coordinator.data:
+        data = self._service_data
+        if not data:
             return {}
 
         attrs = {
-            "reading_count": self.coordinator.data.get("reading_count"),
+            "reading_count": data.get("reading_count"),
         }
 
-        latest = self.coordinator.data.get("latest_reading")
+        latest = data.get("latest_reading")
         if latest:
             attrs["latest_reading_value"] = latest.get("value")
             attrs["latest_reading_time"] = latest.get("start_time")
+            attrs["latest_reading_duration"] = latest.get("duration")
 
         return attrs
 
 
 class DTEElectricMeterSensor(DTEBaseSensor):
-    """Sensor for DTE Electric meter readings."""
+    """Sensor for DTE electric meter readings."""
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -101,13 +112,14 @@ class DTEElectricMeterSensor(DTEBaseSensor):
         entry: ConfigEntry,
     ) -> None:
         """Initialize the electric sensor."""
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator, entry, SERVICE_TYPE_ELECTRIC)
+        # Preserve the original unique ID for existing installations.
         self._attr_unique_id = f"{entry.entry_id}_electric_meter"
         self._attr_name = "Electric Meter"
 
 
 class DTEGasMeterSensor(DTEBaseSensor):
-    """Sensor for DTE Gas meter readings."""
+    """Sensor for DTE gas meter readings."""
 
     _attr_device_class = SensorDeviceClass.GAS
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_FEET
@@ -119,6 +131,6 @@ class DTEGasMeterSensor(DTEBaseSensor):
         entry: ConfigEntry,
     ) -> None:
         """Initialize the gas sensor."""
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator, entry, SERVICE_TYPE_GAS)
         self._attr_unique_id = f"{entry.entry_id}_gas_meter"
         self._attr_name = "Gas Meter"
