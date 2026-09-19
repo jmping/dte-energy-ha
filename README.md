@@ -76,6 +76,20 @@ A downward DTE revision is carried as a pending correction rather than making a 
 
 Sensor attributes expose current source-window import/export totals, duplicate interval count, stored interval count, new/revised interval counts from the latest refresh, and any pending downward corrections.
 
+## Historical statistics
+
+The integration imports the timestamped DTE interval history into Home Assistant's recorder as external long-term statistics. This avoids making the full DTE rolling export appear as consumption on the day the integration was installed.
+
+The statistics are:
+
+- **DTE Energy electric import** — positive electric intervals, in kWh;
+- **DTE Energy electric export** — negative electric intervals converted to positive return-to-grid energy, in kWh;
+- **DTE Energy gas consumption** — daily gas intervals, in ft³.
+
+The cumulative `sum` for each statistic is rebuilt from the persistent interval ledger. If DTE later revises an interval, the integration rewrites statistics from the earliest affected timestamp forward so subsequent cumulative sums remain correct. If the recorder database is replaced while the DTE ledger survives, the history is automatically rebuilt.
+
+These external statistics are the preferred sources for the Home Assistant Energy Dashboard because they retain the original DTE timestamps. The live DTE meter entities remain useful as current cumulative counters and diagnostics.
+
 ## Data updates
 
 The integration fetches the share link once every 24 hours by default. DTE data can lag actual consumption.
