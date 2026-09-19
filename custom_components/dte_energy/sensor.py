@@ -88,6 +88,13 @@ class DTEBaseSensor(CoordinatorEntity[DTEEnergyCoordinator], SensorEntity):
 
         attrs = {
             "reading_count": data.get("reading_count"),
+            "source_window_total": data.get("source_window_total"),
+            "ledger_interval_count": data.get("ledger_interval_count"),
+            "new_intervals": data.get("new_intervals"),
+            "revised_intervals": data.get("revised_intervals"),
+            "pending_negative_correction": data.get(
+                "pending_negative_correction"
+            ),
         }
 
         latest = data.get("latest_reading")
