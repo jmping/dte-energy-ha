@@ -36,6 +36,7 @@ async def async_setup_entry(
 
     if SERVICE_TYPE_ELECTRIC in services:
         entities.append(DTEElectricMeterSensor(coordinator, entry))
+        entities.append(DTEElectricExportSensor(coordinator, entry))
     if SERVICE_TYPE_GAS in services:
         entities.append(DTEGasMeterSensor(coordinator, entry))
 
@@ -89,11 +90,17 @@ class DTEBaseSensor(CoordinatorEntity[DTEEnergyCoordinator], SensorEntity):
         attrs = {
             "reading_count": data.get("reading_count"),
             "source_window_total": data.get("source_window_total"),
+            "source_window_export": data.get("source_window_export"),
+            "export_reading_count": data.get("export_reading_count"),
+            "duplicate_intervals": data.get("duplicate_intervals"),
             "ledger_interval_count": data.get("ledger_interval_count"),
             "new_intervals": data.get("new_intervals"),
             "revised_intervals": data.get("revised_intervals"),
             "pending_negative_correction": data.get(
                 "pending_negative_correction"
+            ),
+            "pending_export_correction": data.get(
+                "pending_export_correction"
             ),
         }
 
@@ -123,6 +130,29 @@ class DTEElectricMeterSensor(DTEBaseSensor):
         # Preserve the original unique ID for existing installations.
         self._attr_unique_id = f"{entry.entry_id}_electric_meter"
         self._attr_name = "Electric Meter"
+
+
+class DTEElectricExportSensor(DTEBaseSensor):
+    """Sensor for cumulative electric energy exported to the grid."""
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_icon = "mdi:transmission-tower-export"
+
+    def __init__(
+        self,
+        coordinator: DTEEnergyCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the electric export sensor."""
+        super().__init__(coordinator, entry, SERVICE_TYPE_ELECTRIC)
+        self._attr_unique_id = f"{entry.entry_id}_electric_export_meter"
+        self._attr_name = "Electric Export"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return cumulative exported energy as a positive counter."""
+        return self._service_data.get("total_export")
 
 
 class DTEGasMeterSensor(DTEBaseSensor):
