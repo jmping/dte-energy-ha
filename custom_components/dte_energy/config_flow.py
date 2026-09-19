@@ -13,9 +13,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
-    DOMAIN,
-    CONF_USAGE_LINK,
     CONF_SERVICE_TYPE,
+    CONF_USAGE_LINK,
+    DOMAIN,
+    SERVICE_TYPE_COMBINED,
     SERVICE_TYPE_ELECTRIC,
     SERVICE_TYPE_GAS,
 )
@@ -23,10 +24,9 @@ from .coordinator import validate_usage_link
 
 _LOGGER = logging.getLogger(__name__)
 
-# Valid URL pattern for DTE usage links
 DTE_LINK_PATTERN = re.compile(
     r"^https://usagedata\.dteenergy\.com/link/[a-f0-9-]+$",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
 
@@ -35,29 +35,37 @@ def _validate_link_format(usage_link: str) -> bool:
     return bool(DTE_LINK_PATTERN.match(usage_link.strip()))
 
 
-async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+async def _validate_input(
+    hass: HomeAssistant, data: dict[str, Any]
+) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     usage_link = data[CONF_USAGE_LINK].strip()
 
     if not _validate_link_format(usage_link):
-        raise InvalidLink("The URL format is not valid. Please check the link.")
+        raise InvalidLink(
+            "The URL format is not valid. Please check the link."
+        )
 
     try:
         result = await validate_usage_link(hass, usage_link)
     except Exception as err:
         _LOGGER.error("Error validating DTE link: %s", err)
-        raise CannotConnect(f"Could not connect to DTE Energy: {err}") from err
+        raise CannotConnect(
+            f"Could not connect to DTE Energy: {err}"
+        ) from err
 
-    if not result.get("service_type"):
-        raise CannotConnect("Could not determine service type from data")
+    if not result.get("service_types"):
+        raise CannotConnect(
+            "Could not determine electric or gas service from data"
+        )
 
     return result
 
 
 class DTEEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for DTE Energy."""
+    """Handle the DTE Energy config flow."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -68,8 +76,9 @@ class DTEEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             usage_link = user_input[CONF_USAGE_LINK].strip()
 
-            # Check if this link is already configured
-            self._async_abort_entries_match({CONF_USAGE_LINK: usage_link})
+            self._async_abort_entries_match(
+                {CONF_USAGE_LINK: usage_link}
+            )
 
             try:
                 info = await _validate_input(self.hass, user_input)
@@ -81,11 +90,21 @@ class DTEEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                service_type = info["service_type"]
-                service_name = "Electric" if service_type == SERVICE_TYPE_ELECTRIC else "Gas"
+                service_types = info["service_types"]
+                if len(service_types) > 1:
+                    service_type = SERVICE_TYPE_COMBINED
+                    title = "DTE Energy"
+                else:
+                    service_type = service_types[0]
+                    service_name = (
+                        "Electric"
+                        if service_type == SERVICE_TYPE_ELECTRIC
+                        else "Gas"
+                    )
+                    title = f"DTE {service_name}"
 
                 return self.async_create_entry(
-                    title=f"DTE {service_name}",
+                    title=title,
                     data={
                         CONF_USAGE_LINK: usage_link,
                         CONF_SERVICE_TYPE: service_type,
@@ -108,4 +127,4 @@ class CannotConnect(HomeAssistantError):
 
 
 class InvalidLink(HomeAssistantError):
-    """Error to indicate the link format is invalid."""
+    """Error to indicate an invalid DTE share link."""
