@@ -91,6 +91,13 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # intentionally does not create persistent storage.
                 for service in data.get("services", {}).values():
                     service.pop("readings", None)
+
+            # Keep the original top-level single-service response shape in
+            # sync after ledger reconciliation.
+            service_types = data.get("service_types", [])
+            if len(service_types) == 1:
+                data.update(data["services"][service_types[0]])
+
             return data
 
         except aiohttp.ClientError as err:
