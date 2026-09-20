@@ -152,9 +152,19 @@ def _discover_rate_book_links(html: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for href, text in parser.anchors:
         normalized = text.lower()
-        if "sheets a-1.00 through c" in normalized:
+        # The page repeats these labels for the current, cancelled, and
+        # retired rate books. The current rate-book links appear first, so
+        # retain the first match for each section instead of overwriting it
+        # with a later retired/cancelled-book link.
+        if (
+            "sheets a-1.00 through c" in normalized
+            and "adjustments" not in result
+        ):
             result["adjustments"] = urljoin(MPSC_DTE_RATE_BOOK_PAGE, href)
-        elif "sheets d1 through end" in normalized:
+        elif (
+            "sheets d1 through end" in normalized
+            and "rates" not in result
+        ):
             result["rates"] = urljoin(MPSC_DTE_RATE_BOOK_PAGE, href)
 
     return result
