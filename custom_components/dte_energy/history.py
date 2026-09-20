@@ -29,7 +29,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-STATISTICS_VERSION = 1
+STATISTICS_VERSION = 2
 
 
 def statistic_ids(entry_id: str) -> dict[str, str]:
@@ -73,9 +73,12 @@ async def async_import_interval_statistics(
     if not needs_full_import:
         expected_ids: list[str] = []
         if SERVICE_TYPE_ELECTRIC in services:
-            expected_ids.extend(
-                [ids["electric_import"], ids["electric_export"]]
-            )
+            expected_ids.append(ids["electric_import"])
+            electric_service = services.get(SERVICE_TYPE_ELECTRIC)
+            if isinstance(electric_service, dict):
+                electric_intervals = _ordered_intervals(electric_service)
+                if any(value < 0 for _start, value in electric_intervals):
+                    expected_ids.append(ids["electric_export"])
         if SERVICE_TYPE_GAS in services:
             expected_ids.append(ids["gas_consumption"])
 
@@ -117,14 +120,19 @@ async def async_import_interval_statistics(
                     unit_class=EnergyConverter.UNIT_CLASS,
                     unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
                 )
-                export_metadata = StatisticMetaData(
-                    mean_type=StatisticMeanType.NONE,
-                    has_sum=True,
-                    name="DTE Energy electric export",
-                    source=DOMAIN,
-                    statistic_id=ids["electric_export"],
-                    unit_class=EnergyConverter.UNIT_CLASS,
-                    unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+                has_export = any(value < 0 for _start, value in intervals)
+                export_metadata = (
+                    StatisticMetaData(
+                        mean_type=StatisticMeanType.NONE,
+                        has_sum=True,
+                        name="DTE Energy electric export",
+                        source=DOMAIN,
+                        statistic_id=ids["electric_export"],
+                        unit_class=EnergyConverter.UNIT_CLASS,
+                        unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+                    )
+                    if has_export
+                    else None
                 )
 
                 if import_stats:
@@ -132,7 +140,7 @@ async def async_import_interval_statistics(
                         hass, import_metadata, import_stats
                     )
                     imported_any = True
-                if export_stats:
+                if has_export and export_metadata is not None and export_stats:
                     async_add_external_statistics(
                         hass, export_metadata, export_stats
                     )
@@ -142,7 +150,7 @@ async def async_import_interval_statistics(
                     "Imported %s electric import and %s export DTE "
                     "statistics from %s",
                     len(import_stats),
-                    len(export_stats),
+                    len(export_stats) if has_export else 0,
                     dt_util.utc_from_timestamp(start_from).isoformat(),
                 )
 
