@@ -36,7 +36,7 @@ async def async_setup_entry(
 
     if SERVICE_TYPE_ELECTRIC in services:
         entities.append(DTEElectricMeterSensor(coordinator, entry))
-        if services[SERVICE_TYPE_ELECTRIC].get("export_reading_count", 0) > 0:
+        if services[SERVICE_TYPE_ELECTRIC].get("total_export", 0) > 0:
             entities.append(DTEElectricExportSensor(coordinator, entry))
         entities.append(DTETariffSensor(coordinator, entry))
     if SERVICE_TYPE_GAS in services:
