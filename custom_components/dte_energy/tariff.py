@@ -236,15 +236,10 @@ def _parse_rider18(text: str) -> dict[str, Any]:
     if end_match:
         segment = segment[:end_match.start()]
 
-    table_match = re.search(
-        r"Rate Schedule Outflow Credit\s*\$ per kWh\s*Residential",
-        segment,
-        re.IGNORECASE,
-    )
-    if not table_match:
-        return {"available": False, "rates": {}, "diagnostic": "rider18_table_not_found"}
-
-    table = segment[table_match.start():]
+    # PDF text extraction can interleave table headers/columns differently
+    # across MPSC revisions. Once Rider 18 itself is located, parse the whole
+    # rider segment rather than requiring one exact extracted header string.
+    table = segment
 
     rates: dict[str, dict[str, float | None]] = {
         "D1.2": {
@@ -366,13 +361,16 @@ def _parse_rider18(text: str) -> dict[str, Any]:
         re.IGNORECASE,
     )
 
-    return {
+    result = {
         "available": bool(rates),
         "effective_date": effective_match.group(1) if effective_match else None,
         "rates": rates,
         "unit": "USD/kWh",
         "note": "Base Rider 18 outflow credit; add the applicable PSCR factor.",
     }
+    if not rates:
+        result["diagnostic"] = "rider18_rates_not_found"
+    return result
 
 
 def _parse_pscr(text: str) -> dict[str, Any]:
