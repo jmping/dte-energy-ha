@@ -239,19 +239,19 @@ def _parse_rider18(text: str) -> dict[str, Any]:
         },
         "D1.8": {
             "critical_peak": _money(
-                r"D1\.8\s+Dyna?mic Peak.*?Critical\s+Peak:\s*\$([0-9.]+)",
+                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Critical\s+Peak:\s*\$([0-9.]+)",
                 segment,
             ),
             "on_peak": _money(
-                r"D1\.8\s+Dyna?mic Peak.*?On-Peak:\s*\$([0-9.]+)",
+                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?On-Peak:\s*\$([0-9.]+)",
                 segment,
             ),
             "mid_peak": _money(
-                r"D1\.8\s+Dyna?mic Peak.*?Mid-Peak:\s*\$([0-9.]+)",
+                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Mid-Peak:\s*\$([0-9.]+)",
                 segment,
             ),
             "off_peak": _money(
-                r"D1\.8\s+Dyna?mic Peak.*?Off-Peak:\s*\$([0-9.]+)",
+                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Off-Peak:\s*\$([0-9.]+)",
                 segment,
             ),
         },
@@ -315,10 +315,16 @@ def _parse_rider18(text: str) -> dict[str, Any]:
         if any(value is not None for value in values.values())
     }
 
+    table_marker = segment.find("Rate Schedule Outflow Credit")
+    effective_context = (
+        segment[max(0, table_marker - 1400):table_marker + 200]
+        if table_marker != -1
+        else segment[:1600]
+    )
     effective_match = re.search(
         r"Effective for service rendered on\s+.*?after\s+"
         r"([A-Za-z]+\s+\d{1,2},\s+\d{4})",
-        segment,
+        effective_context,
         re.IGNORECASE | re.DOTALL,
     )
 
