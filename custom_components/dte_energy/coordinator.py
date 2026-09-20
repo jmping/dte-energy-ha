@@ -24,6 +24,7 @@ from .const import (
     SERVICE_TYPE_GAS,
 )
 from .history import async_import_interval_statistics
+from .tariff import DTETariffManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,12 +55,15 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entry_id = entry_id
         self._store: Store[dict[str, Any]] | None = None
         self._ledger: dict[str, Any] | None = None
+        self.tariff_data: dict[str, Any] | None = None
+        self._tariff_manager: DTETariffManager | None = None
         if entry_id is not None:
             self._store = Store(
                 hass,
                 1,
                 f"{DOMAIN}.{entry_id}.interval_ledger",
             )
+            self._tariff_manager = DTETariffManager(hass, entry_id)
 
     @property
     def service_type(self) -> str | None:
@@ -102,6 +106,20 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # intentionally does not create persistent storage.
                 for service in data.get("services", {}).values():
                     service.pop("readings", None)
+
+            if (
+                self._tariff_manager is not None
+                and SERVICE_TYPE_ELECTRIC in data.get("services", {})
+            ):
+                try:
+                    self.tariff_data = await self._tariff_manager.async_refresh()
+                except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+                    _LOGGER.warning("Could not refresh DTE tariff data: %s", err)
+                    self.tariff_data = (
+                        await self._tariff_manager.async_load_cached()
+                    )
+                if self.tariff_data is not None:
+                    data["tariff"] = self.tariff_data
 
             # Keep the original top-level single-service response shape in
             # sync after ledger reconciliation.
