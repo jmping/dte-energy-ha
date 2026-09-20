@@ -194,8 +194,13 @@ def _extract_pdf_text(data: bytes) -> str:
     return text.replace("$00.", "$0.").replace("$.0.", "$0.")
 
 
+def _normalized(text: str) -> str:
+    """Collapse PDF extraction whitespace for resilient tariff parsing."""
+    return " ".join(text.replace("\u00a0", " ").split())
+
+
 def _money(pattern: str, text: str) -> float | None:
-    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    match = re.search(pattern, text, re.IGNORECASE)
     if not match:
         return None
     return float(match.group(1))
@@ -203,149 +208,157 @@ def _money(pattern: str, text: str) -> float | None:
 
 def _parse_rider18(text: str) -> dict[str, Any]:
     """Parse residential Rider 18 base outflow credits from the rate book."""
-    start = text.find("STANDARD CONTRACT RIDER NO. 18")
-    if start == -1:
-        return {"available": False, "rates": {}}
+    normalized = _normalized(text)
+    match = re.search(
+        r"STANDARD CONTRACT RIDER NO\.\s*18\b.*?DISTRIBUTED GENERATION PROGRAM",
+        normalized,
+        re.IGNORECASE,
+    )
+    if not match:
+        return {"available": False, "rates": {}, "diagnostic": "rider18_heading_not_found"}
 
-    segment = text[start:]
-    # Limit parsing to the Rider 18 section.
-    end = segment.find("STANDARD CONTRACT RIDER NO. 20")
-    if end != -1:
-        segment = segment[:end]
+    segment = normalized[match.start():]
+    end_match = re.search(
+        r"STANDARD CONTRACT RIDER NO\.\s*20\b",
+        segment,
+        re.IGNORECASE,
+    )
+    if end_match:
+        segment = segment[:end_match.start()]
+
+    table_match = re.search(
+        r"Rate Schedule Outflow Credit\s*\$ per kWh\s*Residential",
+        segment,
+        re.IGNORECASE,
+    )
+    if not table_match:
+        return {"available": False, "rates": {}, "diagnostic": "rider18_table_not_found"}
+
+    table = segment[table_match.start():]
 
     rates: dict[str, dict[str, float | None]] = {
         "D1.2": {
             "summer_on_peak": _money(
-                r"D1\.2\s+Time-of-Day.*?Summer\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.2\s+Time-of-Day\s+Summer\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "summer_off_peak": _money(
-                r"D1\.2\s+Time-of-Day.*?Summer\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.2\s+Time-of-Day.*?Summer\s+Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "winter_on_peak": _money(
-                r"D1\.2\s+Time-of-Day.*?Winter\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.2\s+Time-of-Day.*?Winter\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "winter_off_peak": _money(
-                r"D1\.2\s+Time-of-Day.*?Winter\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.2\s+Time-of-Day.*?Winter\s+Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
         },
         "D1.7": {
             "summer_on_peak": _money(
-                r"D1\.7\s+Time-of-Day.*?Summer\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.7\s+Time-of-Day\s+Summer\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "summer_off_peak": _money(
-                r"D1\.7\s+Time-of-Day.*?Summer\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.7\s+Time-of-Day.*?Summer\s+Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "winter_on_peak": _money(
-                r"D1\.7\s+Time-of-Day.*?Winter\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.7\s+Time-of-Day.*?Winter\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "winter_off_peak": _money(
-                r"D1\.7\s+Time-of-Day.*?Winter\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.7\s+Time-of-Day.*?Winter\s+Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
         },
         "D1.8": {
             "critical_peak": _money(
-                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Critical\s+Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.8\s+(?:Dynamic|Dymanic)\s+Peak\s+Pricing\s+Critical\s+Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "on_peak": _money(
-                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.8\s+(?:Dynamic|Dymanic)\s+Peak\s+Pricing.*?On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "mid_peak": _money(
-                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Mid-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.8\s+(?:Dynamic|Dymanic)\s+Peak\s+Pricing.*?Mid-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "off_peak": _money(
-                r"D1\.8\s+(?:Dynamic|Dymanic) Peak.*?Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.8\s+(?:Dynamic|Dymanic)\s+Peak\s+Pricing.*?Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
         },
         "D1.9": {
             "on_peak": _money(
-                r"D1\.9\s+Elec\.\s*Vehicle\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.9\s+Elec\.\s*Vehicle\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "off_peak": _money(
-                r"D1\.9\s+Elec\.\s*Vehicle.*?Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.9\s+Elec\.\s*Vehicle.*?Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
         },
         "D1.11": {
             "jun_sep_on_peak": _money(
-                r"D1\.11\s+Stan\.\s*TOU.*?June-Sept\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.11\s+Stan\.\s*TOU\s+June-Sept\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "jun_sep_off_peak": _money(
-                r"D1\.11\s+Stan\.\s*TOU.*?June-Sept\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.11\s+Stan\.\s*TOU.*?June-Sept\s+Off-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "oct_may_on_peak": _money(
-                r"D1\.11\s+Stan\.\s*TOU.*?Oct-May\s+On-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.11\s+Stan\.\s*TOU.*?Oct-May\s+On-Peak:\s*\$0?([0-9.]+)",
+                table,
             ),
             "oct_may_off_peak": _money(
-                r"D1\.11\s+Stan\.\s*TOU.*?Oct-May\s+Off-Peak:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.11\s+Stan\.\s*TOU.*?Oct-May\s+Off-Peak:\s*\$0*([0-9.]+)",
+                table,
             ),
         },
         "D1.13": {
             "jun_sep_on_peak": _money(
-                r"D1\.13\s+Overnight Savers.*?On-Peak:\s*June-Sept:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.13\s+Overnight\s+Savers\s+On-Peak:\s*June-Sept:\s*\$0?([0-9.]+)",
+                table,
             ),
             "oct_may_on_peak": _money(
-                r"D1\.13\s+Overnight Savers.*?On-Peak:.*?Oct-May:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.13\s+Overnight\s+Savers\s+On-Peak:.*?Oct-May:\s*\$0?([0-9.]+)",
+                table,
             ),
             "jun_sep_off_peak": _money(
-                r"D1\.13\s+Overnight Savers.*?Off-Peak:\s*June-Sept:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.13\s+Overnight\s+Savers.*?Off-Peak:\s*June-Sept:\s*\$0?([0-9.]+)",
+                table,
             ),
             "oct_may_off_peak": _money(
-                r"D1\.13\s+Overnight Savers.*?Off-Peak:.*?Oct-May:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.13\s+Overnight\s+Savers.*?Off-Peak:.*?Oct-May:\s*\$0?([0-9.]+)",
+                table,
             ),
             "super_off_peak": _money(
-                r"D1\.13\s+Overnight Savers.*?Super\s+Off-Peak:\s*June-Sept:\s*\$([0-9.]+)",
-                segment,
+                r"D1\.13\s+Overnight\s+Savers.*?Super\s+Off-Peak:\s*June-Sept:\s*\$0?([0-9.]+)",
+                table,
             ),
         },
     }
 
-    # Remove schedules that failed completely rather than publishing an empty
-    # rate table as if it were authoritative.
     rates = {
         schedule: values
         for schedule, values in rates.items()
         if any(value is not None for value in values.values())
     }
 
-    table_marker = segment.find("Rate Schedule Outflow Credit")
-    effective_context = (
-        segment[max(0, table_marker - 1400):table_marker + 200]
-        if table_marker != -1
-        else segment[:1600]
-    )
     effective_match = re.search(
         r"Effective for service rendered on\s+.*?after\s+"
         r"([A-Za-z]+\s+\d{1,2},\s+\d{4})",
-        effective_context,
-        re.IGNORECASE | re.DOTALL,
+        segment[:2200],
+        re.IGNORECASE,
     )
 
     return {
         "available": bool(rates),
-        "effective_date": (
-            effective_match.group(1) if effective_match else None
-        ),
+        "effective_date": effective_match.group(1) if effective_match else None,
         "rates": rates,
         "unit": "USD/kWh",
         "note": "Base Rider 18 outflow credit; add the applicable PSCR factor.",
@@ -354,36 +367,62 @@ def _parse_rider18(text: str) -> dict[str, Any]:
 
 def _parse_pscr(text: str) -> dict[str, Any]:
     """Parse monthly actual PSCR factors from Sheet C-62.00."""
-    marker = "Power Supply Cost Recovery (PSCR) Clause"
-    start = text.find(marker)
-    if start == -1:
-        return {"available": False, "actual_cents_per_kwh": {}}
+    normalized = _normalized(text)
+    marker = re.search(
+        r"C8\.1\s+Power Supply Cost Recovery \(PSCR\) Clause",
+        normalized,
+        re.IGNORECASE,
+    )
+    if not marker:
+        return {
+            "available": False,
+            "actual_cents_per_kwh": {},
+            "diagnostic": "pscr_clause_not_found",
+        }
 
-    segment = text[start:start + 12000]
+    segment = normalized[marker.start():]
     years_match = re.search(
-        r"(20\d{2})\s+(20\d{2})\s+Billing Month",
+        r"calendar years\s+(20\d{2})\s+and\s+(20\d{2}).*?"
+        r"\1\s+\2\s+Billing Month",
         segment,
-        re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE,
     )
     if not years_match:
-        return {"available": False, "actual_cents_per_kwh": {}}
+        return {
+            "available": False,
+            "actual_cents_per_kwh": {},
+            "diagnostic": "pscr_year_table_not_found",
+        }
 
     years = [years_match.group(1), years_match.group(2)]
+    table = segment[years_match.start():]
     months = (
         "January February March April May June July August "
         "September October November December"
     ).split()
 
     actual: dict[str, dict[str, float]] = {years[0]: {}, years[1]: {}}
-    for month in months:
-        match = re.search(
-            rf"{month}\s+((?:[0-9]+(?:\.[0-9]+)?\s*){{2,4}})",
-            segment,
-            re.IGNORECASE,
-        )
-        if not match:
+    for index, month in enumerate(months):
+        next_month = months[index + 1] if index + 1 < len(months) else None
+        if next_month:
+            row_match = re.search(
+                rf"{month}\s+(.*?)(?=\s+{next_month}\s+)",
+                table,
+                re.IGNORECASE,
+            )
+        else:
+            row_match = re.search(
+                rf"{month}\s+(.*?)(?=\s+The Company will file)",
+                table,
+                re.IGNORECASE,
+            )
+        if not row_match:
             continue
-        numbers = [float(value) for value in re.findall(r"[0-9]+(?:\.[0-9]+)?", match.group(1))]
+
+        numbers = [
+            float(value)
+            for value in re.findall(r"-?[0-9]+(?:\.[0-9]+)?", row_match.group(1))
+        ]
         if len(numbers) >= 2:
             actual[years[0]][month] = numbers[1]
         if len(numbers) >= 4:
