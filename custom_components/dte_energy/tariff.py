@@ -30,6 +30,16 @@ MPSC_DTE_RATE_BOOK_PAGE = (
 
 _STORE_VERSION = 1
 
+_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/140.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 
 class _AnchorParser(HTMLParser):
     """Collect anchor href/text pairs from the MPSC rate-book page."""
@@ -76,6 +86,7 @@ class DTETariffManager:
         session = async_get_clientsession(self.hass)
         async with session.get(
             MPSC_DTE_RATE_BOOK_PAGE,
+            headers=_REQUEST_HEADERS,
             timeout=aiohttp.ClientTimeout(total=60),
         ) as response:
             response.raise_for_status()
@@ -155,7 +166,9 @@ async def _download_pdfs(
     """Download the current rates and adjustments PDF documents."""
     async def _get(url: str) -> bytes:
         async with session.get(
-            url, timeout=aiohttp.ClientTimeout(total=120)
+            url,
+            headers=_REQUEST_HEADERS,
+            timeout=aiohttp.ClientTimeout(total=120),
         ) as response:
             response.raise_for_status()
             return await response.read()
