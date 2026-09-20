@@ -92,6 +92,15 @@ The cumulative `sum` for each statistic is rebuilt from the persistent interval 
 
 These external statistics are the preferred sources for the Home Assistant Energy Dashboard because they retain the original DTE timestamps. The live DTE meter entities remain useful as current cumulative counters and diagnostics.
 
+
+## Companion electric-rate integration
+
+For **current DTE residential electric pricing**, consider installing [DTE Residential Rates for Home Assistant](https://github.com/javaDevJT/DTE-Rates-for-Home-Assistant) alongside this integration.
+
+That project is purpose-built for electric tariff calculation: it parses DTE's current residential rate card and MPSC PSCR data, handles time-of-day and seasonal periods, and exposes numeric **import** and **export** price entities in USD/kWh that are suitable for Home Assistant's Energy Dashboard.
+
+This integration remains focused on DTE Green Button usage/history for both **electric and gas**, including long-term statistics and interval-ledger reconciliation. The two integrations are complementary rather than substitutes. In particular, the companion rate integration currently focuses on electric pricing and does not provide DTE gas rates.
+
 ## Dynamic tariff data
 
 For electric entries, the integration also checks the Michigan Public Service Commission's current DTE rate-book page during the normal daily refresh. It discovers the current Section C and Section D PDF links instead of hard-coding revision URLs, downloads the authoritative documents, and records a SHA-256 fingerprint of the combined source.
