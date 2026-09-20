@@ -8,6 +8,6 @@
   "documentation": "https://github.com/jmping/dte-energy-ha",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/jmping/dte-energy-ha/issues",
-  "requirements": [],
-  "version": "1.4.0"
+  "requirements": ["pypdf==5.9.0"],
+  "version": "1.5.0"
 }
