@@ -36,7 +36,9 @@ async def async_setup_entry(
 
     if SERVICE_TYPE_ELECTRIC in services:
         entities.append(DTEElectricMeterSensor(coordinator, entry))
-        entities.append(DTEElectricExportSensor(coordinator, entry))
+        if services[SERVICE_TYPE_ELECTRIC].get("export_reading_count", 0) > 0:
+            entities.append(DTEElectricExportSensor(coordinator, entry))
+        entities.append(DTETariffSensor(coordinator, entry))
     if SERVICE_TYPE_GAS in services:
         entities.append(DTEGasMeterSensor(coordinator, entry))
 
@@ -171,3 +173,51 @@ class DTEGasMeterSensor(DTEBaseSensor):
         super().__init__(coordinator, entry, SERVICE_TYPE_GAS)
         self._attr_unique_id = f"{entry.entry_id}_gas_meter"
         self._attr_name = "Gas Meter"
+
+
+class DTETariffSensor(CoordinatorEntity[DTEEnergyCoordinator], SensorEntity):
+    """Diagnostic sensor for dynamically discovered MPSC tariff data."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:file-document-refresh"
+
+    def __init__(
+        self,
+        coordinator: DTEEnergyCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the tariff sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_tariff_data"
+        self._attr_name = "Tariff Data"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.title,
+            manufacturer="DTE Energy",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the current rate-book revision fingerprint."""
+        data = self.coordinator.tariff_data
+        if not data:
+            return None
+        fingerprint = data.get("source_hash")
+        return str(fingerprint)[:12] if fingerprint else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose parsed tariff details and authoritative source links."""
+        data = self.coordinator.tariff_data
+        if not data:
+            return {}
+        return {
+            "source": data.get("source"),
+            "source_page": data.get("source_page"),
+            "rates_pdf": data.get("rates_pdf"),
+            "adjustments_pdf": data.get("adjustments_pdf"),
+            "checked_at": data.get("checked_at"),
+            "rider18": data.get("rider18"),
+            "pscr": data.get("pscr"),
+        }
