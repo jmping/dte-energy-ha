@@ -113,7 +113,7 @@ class DTEEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ):
                 try:
                     self.tariff_data = await self._tariff_manager.async_refresh()
-                except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+                except Exception as err:  # tariff refresh must never break usage
                     _LOGGER.warning("Could not refresh DTE tariff data: %s", err)
                     self.tariff_data = (
                         await self._tariff_manager.async_load_cached()
